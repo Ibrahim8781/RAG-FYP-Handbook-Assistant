@@ -1,0 +1,137 @@
+=== FYP Handbook RAG Assistant - Prompt Log ===
+Date: November 12, 2025
+
+1. SYSTEM PROMPT
+================
+
+You are a handbook assistant. Answer ONLY from the context provided.
+Cite page numbers like "(p. X)" after each relevant point.
+If you're unsure or the information isn't in the context, say "I don't have that information in the handbook."
+Be concise but thorough.
+
+
+2. INFERENCE PROMPT TEMPLATE
+============================
+
+You are a handbook assistant. Answer ONLY from the context.
+Cite page numbers like "(p. X)". If unsure, say you don't know.
+
+Question: {user_question}
+
+Context:
+{top_chunks_text}
+
+Answer:
+
+
+3. CONFIGURATION PARAMETERS
+============================
+
+- Chunk Size: 300 words (range: 250-400)
+- Chunk Overlap: 90 words (30% of chunk size)
+- Embedding Model: sentence-transformers/all-MiniLM-L6-v2
+- Vector Store: FAISS with Inner Product (cosine similarity)
+- Top-K Retrieval: 5 chunks
+- Similarity Threshold: 0.25
+- Normalization: L2 normalization for cosine similarity
+
+
+4. RETRIEVAL PROCESS
+====================
+
+1. Query Embedding:
+   - User query is embedded using all-MiniLM-L6-v2
+   - Embedding is L2-normalized for cosine similarity
+
+2. FAISS Search:
+   - IndexFlatIP (Inner Product) search
+   - Returns top-5 chunks with similarity scores
+   
+3. Threshold Check:
+   - If best match score < 0.25: "I don't have that information"
+   - Prevents hallucination on out-of-scope questions
+
+4. Context Formation:
+   - Top-K chunks formatted with page numbers and section hints
+   - Each chunk labeled: [Chunk X - Page Y - Section]
+
+
+5. ANSWER GENERATION
+====================
+
+Current Implementation:
+- Rule-based extraction from top 3 chunks
+- Preserves original text with page citations
+- Format: "Content text. (p. X)"
+
+Production Implementation (Recommended):
+- Send formatted prompt to LLM (GPT-4, Claude, etc.)
+- LLM synthesizes answer from context
+- Maintains grounding with page citations
+
+
+6. GROUNDING MECHANISM
+======================
+
+Every answer must include:
+1. Page references: (p. X) format
+2. Source chunks displayed in collapsible section
+3. Relevance scores for transparency
+4. Section hints for context
+
+Example:
+"The report should use Times New Roman 11pt for body text. (p. 15)
+Headings should be in Arial font with specific sizes. (p. 15)"
+
+
+7. ERROR HANDLING
+=================
+
+- Low similarity (< 0.25): Out-of-scope message
+- No chunks retrieved: No results message
+- PDF not loaded: User prompted to run ingest.py
+- Empty query: Validation error
+
+
+8. VALIDATION QUESTIONS
+=======================
+
+The system is tested with these questions:
+
+1. What headings, fonts, and sizes are required in the FYP report?
+   Expected: Times New Roman 11, Arial headings, specific sizes
+
+2. What margins and spacing do we use?
+   Expected: Top 1.5", Bottom 1.0", Left 2.0", Right 1.0", 1.5 spacing
+
+3. What are the required chapters/sections of a Development FYP report?
+   Expected: Intro, research, vision, SRS, iterations, implementation, etc.
+
+4. What are the required chapters of an R&D-based FYP report?
+   Expected: Intro, literature review, approach, implementation, validation, etc.
+
+5. How should endnotes like 'Ibid.' and 'op. cit.' be used?
+   Expected: Ibid for immediate repeat, op. cit. after interruptions
+
+6. What goes into the Executive Summary and Abstract?
+   Expected: Abstract 50-125 words, Executive Summary 1-2 pages
+
+
+9. QUALITY ASSURANCE
+====================
+
+- All answers cite specific pages
+- Retrieved chunks shown for verification
+- Confidence levels: high (>0.5), medium (0.25-0.5), low (<0.25)
+- Debug mode shows prompt and scores
+- No hallucination prevention through threshold
+
+
+10. TECHNICAL NOTES
+===================
+
+- Embedding dimension: 384 (all-MiniLM-L6-v2)
+- FAISS index type: IndexFlatIP (exact search)
+- Persistence: Binary index + pickle metadata
+- Metadata stored per chunk: page_number, section_hint, chunk_id, text
+- Cosine similarity range: [-1, 1], typically [0, 1] for document retrieval

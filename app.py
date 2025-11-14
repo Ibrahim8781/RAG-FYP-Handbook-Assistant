@@ -1,0 +1,281 @@
+"""
+FYP Handbook RAG - Streamlit Web Interface
+Minimal UI with input box, Ask button, Answer panel, and collapsible Sources
+"""
+
+import streamlit as st
+import os
+import pickle
+import json
+from typing import List, Dict, Tuple
+import numpy as np
+import faiss
+from sentence_transformers import SentenceTransformer
+
+# Configuration
+FAISS_INDEX_PATH = "faiss_index.bin"
+METADATA_PATH = "chunks_metadata.pkl"
+CONFIG_PATH = "config.json"
+TOP_K = 5
+SIMILARITY_THRESHOLD = 0.25
+
+# Prompt template
+PROMPT_TEMPLATE = """You are a handbook assistant. Answer ONLY from the context.
+Cite page numbers like "(p. X)". If unsure, say you don't know.
+
+Question: {user_question}
+
+Context:
+{top_chunks_text}
+
+Answer:"""
+
+
+@st.cache_resource
+def load_rag_system():
+    """Load RAG system components (cached for performance)"""
+    # Check if required files exist
+    if not all(os.path.exists(p) for p in [FAISS_INDEX_PATH, METADATA_PATH, CONFIG_PATH]):
+        return None, None, None, None
+    
+    # Load configuration
+    with open(CONFIG_PATH, 'r') as f:
+        config = json.load(f)
+    
+    # Load FAISS index
+    index = faiss.read_index(FAISS_INDEX_PATH)
+    
+    # Load metadata
+    with open(METADATA_PATH, 'rb') as f:
+        chunks = pickle.load(f)
+    
+    # Load embedding model
+    model = SentenceTransformer(config['embedding_model'])
+    
+    return index, chunks, model, config
+
+
+def retrieve_chunks(query: str, model, index, chunks, top_k: int = TOP_K) -> Tuple[List[Dict], List[float]]:
+    """Retrieve top-k most relevant chunks"""
+    # Embed query
+    query_embedding = model.encode([query])
+    
+    # Normalize for cosine similarity
+    faiss.normalize_L2(query_embedding)
+    
+    # Search in FAISS index
+    scores, indices = index.search(query_embedding, top_k)
+    
+    # Get corresponding chunks
+    retrieved_chunks = []
+    retrieved_scores = []
+    
+    for idx, score in zip(indices[0], scores[0]):
+        if idx < len(chunks):
+            retrieved_chunks.append(chunks[idx])
+            retrieved_scores.append(float(score))
+    
+    return retrieved_chunks, retrieved_scores
+
+
+def format_context(chunks: List[Dict]) -> str:
+    """Format retrieved chunks into context string"""
+    context_parts = []
+    for i, chunk in enumerate(chunks, 1):
+        page = chunk['page_number']
+        text = chunk['text'].strip()
+        section = chunk.get('section_hint', 'General')
+        
+        context_parts.append(
+            f"[Chunk {i} - Page {page} - {section}]\n{text}\n"
+        )
+    
+    return "\n".join(context_parts)
+
+
+def extract_answer_from_chunks(query: str, chunks: List[Dict]) -> str:
+    """
+    Extract answer from chunks with page citations.
+    Simple implementation - in production, use an LLM like GPT-4.
+    """
+    answer_parts = []
+    seen_pages = set()
+    
+    for chunk in chunks[:3]:  # Use top 3 chunks
+        page = chunk['page_number']
+        text = chunk['text'].strip()
+        
+        if page not in seen_pages:
+            # Take relevant sentences
+            sentences = text.split('.')[:4]
+            excerpt = '.'.join(sentences).strip()
+            if excerpt and len(excerpt) > 20:
+                answer_parts.append(f"{excerpt}. (p. {page})")
+                seen_pages.add(page)
+    
+    if answer_parts:
+        return "\n\n".join(answer_parts)
+    else:
+        return "I found relevant information but couldn't extract a clear answer. Please refer to the sources below."
+
+
+def generate_answer(query: str, chunks: List[Dict], scores: List[float]) -> Dict:
+    """Generate answer from retrieved chunks"""
+    # Check if best match is above threshold
+    if not scores or scores[0] < SIMILARITY_THRESHOLD:
+        return {
+            'answer': "I don't have that information in the handbook. Please make sure your question is about the FYP handbook content.",
+            'sources': [],
+            'scores': scores,
+            'confidence': 'low',
+            'prompt': ''
+        }
+    
+    # Format context
+    context = format_context(chunks)
+    
+    # Create prompt
+    prompt = PROMPT_TEMPLATE.format(
+        user_question=query,
+        top_chunks_text=context
+    )
+    
+    # Extract answer
+    answer = extract_answer_from_chunks(query, chunks)
+    
+    # Format sources
+    sources = []
+    seen_pages = set()
+    for chunk, score in zip(chunks, scores):
+        page = chunk['page_number']
+        if page not in seen_pages:
+            sources.append({
+                'page': page,
+                'section': chunk.get('section_hint', 'General'),
+                'score': score,
+                'snippet': chunk['text'][:300] + "..." if len(chunk['text']) > 300 else chunk['text']
+            })
+            seen_pages.add(page)
+    
+    return {
+        'answer': answer,
+        'sources': sources,
+        'scores': scores,
+        'confidence': 'high' if scores[0] > 0.5 else 'medium',
+        'prompt': prompt
+    }
+
+
+def main():
+    """Main Streamlit app"""
+    st.set_page_config(
+        page_title="FYP Handbook Assistant",
+        page_icon="📚",
+        layout="wide"
+    )
+    
+    # Header
+    st.title("📚 FYP Handbook Assistant")
+    st.markdown("*Ask questions about the FAST-NUCES FYP process*")
+    st.divider()
+    
+    # Load RAG system
+    index, chunks, model, config = load_rag_system()
+    
+    # Check if system is loaded
+    if index is None:
+        st.error("⚠️ RAG system not initialized!")
+        st.info("Please run `python ingest.py` first to create the FAISS index.")
+        st.stop()
+    
+    # Display system info in sidebar
+    with st.sidebar:
+        st.header("System Information")
+        st.metric("Total Chunks", config['num_chunks'])
+        st.metric("Chunk Size", f"{config['chunk_size']} words")
+        st.metric("Overlap", f"{config['overlap']} words")
+        st.metric("Embedding Model", "all-MiniLM-L6-v2")
+        st.metric("Top-K Retrieval", TOP_K)
+        st.metric("Similarity Threshold", SIMILARITY_THRESHOLD)
+        
+        st.divider()
+        
+        st.header("Sample Questions")
+        st.markdown("""
+        1. What headings, fonts, and sizes are required?
+        2. What margins and spacing do we use?
+        3. Required chapters of Development FYP?
+        4. Required chapters of R&D FYP?
+        5. How to use 'Ibid.' and 'op. cit.'?
+        6. What goes into Executive Summary?
+        """)
+    
+    # Main input area
+    st.subheader("Ask a Question")
+    
+    # Query input
+    query = st.text_input(
+        "Enter your question about the FYP handbook:",
+        placeholder="e.g., What are the required chapters of a Development FYP report?",
+        key="query_input"
+    )
+    
+    # Ask button
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col1:
+        ask_button = st.button("🔍 Ask", type="primary", use_container_width=True)
+    
+    # Process query
+    if ask_button and query.strip():
+        with st.spinner("Searching handbook..."):
+            # Retrieve chunks
+            retrieved_chunks, scores = retrieve_chunks(query, model, index, chunks, TOP_K)
+            
+            # Generate answer
+            result = generate_answer(query, retrieved_chunks, scores)
+        
+        # Display answer
+        st.divider()
+        st.subheader("📝 Answer")
+        
+        # Confidence badge
+        confidence_color = {
+            'high': '🟢',
+            'medium': '🟡',
+            'low': '🔴'
+        }
+        st.markdown(f"{confidence_color[result['confidence']]} Confidence: **{result['confidence'].title()}**")
+        
+        # Answer text
+        st.markdown(result['answer'])
+        
+        # Sources section (collapsible)
+        st.divider()
+        with st.expander("📚 **Sources (Page References)**", expanded=True):
+            if result['sources']:
+                for i, source in enumerate(result['sources'], 1):
+                    st.markdown(f"**{i}. Page {source['page']}** - *{source['section']}*")
+                    st.caption(f"Relevance Score: {source['score']:.3f}")
+                    st.text(source['snippet'])
+                    st.markdown("---")
+            else:
+                st.info("No sources found above the similarity threshold.")
+        
+        # Debug info (collapsible)
+        with st.expander("🔧 Debug Information"):
+            st.markdown("**Similarity Scores:**")
+            st.write(result['scores'])
+            
+            st.markdown("**Generated Prompt:**")
+            st.code(result['prompt'], language='text')
+    
+    elif ask_button and not query.strip():
+        st.warning("Please enter a question!")
+    
+    # Footer
+    st.divider()
+    st.caption("FYP Handbook RAG Assistant | Built with Sentence-BERT & FAISS")
+
+
+if __name__ == "__main__":
+    main()
