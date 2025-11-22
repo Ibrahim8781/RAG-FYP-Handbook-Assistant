@@ -23,6 +23,34 @@ METADATA_PATH = "chunks_metadata.pkl"
 CONFIG_PATH = "config.json"
 
 
+def clean_ocr_errors(text: str) -> str:
+    """
+    Fix common OCR errors in the text.
+    """
+    # Fix common spacing issues in words
+    text = re.sub(r'Y\s+ear', 'Year', text, flags=re.IGNORECASE)
+    text = re.sub(r'Pr\s+oject', 'Project', text, flags=re.IGNORECASE)
+    text = re.sub(r'F\s+inal', 'Final', text, flags=re.IGNORECASE)
+    text = re.sub(r'R\s+eport', 'Report', text, flags=re.IGNORECASE)
+    text = re.sub(r'D\s+evelopment', 'Development', text, flags=re.IGNORECASE)
+    text = re.sub(r'H\s+andbook', 'Handbook', text, flags=re.IGNORECASE)
+    
+    # Fix ligatures
+    text = re.sub(r'\ufb01', 'fi', text)
+    text = re.sub(r'\ufb02', 'fl', text)
+    
+    # Fix any word with space in the middle (if it's a single letter space pattern)
+    text = re.sub(r'\b([A-Z])\s+([a-z]{2,})\b', r'\1\2', text)
+    
+    # Fix multiple spaces
+    text = re.sub(r' +', ' ', text)
+    
+    # Fix spacing around punctuation
+    text = re.sub(r'\s+([.,;:!?])', r'\1', text)
+    
+    return text
+
+
 def extract_text_from_pdf(pdf_path: str) -> List[Dict]:
     """
     Extract text from PDF page by page, preserving page numbers.
@@ -43,6 +71,9 @@ def extract_text_from_pdf(pdf_path: str) -> List[Dict]:
             text = page.extract_text()
             
             if text.strip():
+                # Clean OCR errors
+                text = clean_ocr_errors(text)
+                
                 pages_data.append({
                     'page_number': page_num + 1,  # 1-indexed
                     'text': text

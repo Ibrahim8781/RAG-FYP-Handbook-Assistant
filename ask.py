@@ -6,6 +6,7 @@ Retrieves relevant chunks and generates answers with page citations
 import os
 import pickle
 import json
+import re
 from typing import List, Dict, Tuple
 import numpy as np
 import faiss
@@ -33,6 +34,19 @@ Context:
 {top_chunks_text}
 
 Answer:"""
+
+
+def clean_ocr_errors(text: str) -> str:
+    """Fix common OCR errors in text output."""
+    text = re.sub(r'Y\s+ear', 'Year', text, flags=re.IGNORECASE)
+    text = re.sub(r'Pr\s+oject', 'Project', text, flags=re.IGNORECASE)
+    text = re.sub(r'F\s+inal', 'Final', text, flags=re.IGNORECASE)
+    text = re.sub(r'R\s+eport', 'Report', text, flags=re.IGNORECASE)
+    text = re.sub(r'D\s+evelopment', 'Development', text, flags=re.IGNORECASE)
+    text = re.sub(r'H\s+andbook', 'Handbook', text, flags=re.IGNORECASE)
+    text = re.sub(r'\b([A-Z])\s+([a-z]{2,})\b', r'\1\2', text)
+    text = re.sub(r' +', ' ', text)
+    return text
 
 
 class RAGQueryEngine:
@@ -180,25 +194,54 @@ class RAGQueryEngine:
         Extract answer from chunks with page citations.
         This is a simple implementation - in production, use an LLM.
         """
-        # Combine relevant chunks with page citations
-        answer_parts = []
+        # Organize content by topic/section
+        answer_content = []
+        references = []
         seen_pages = set()
         
         for chunk in chunks[:3]:  # Use top 3 chunks
             page = chunk['page_number']
-            text = chunk['text'].strip()
+            text = clean_ocr_errors(chunk['text'].strip())
             
-            # Add text with page citation if from new page
             if page not in seen_pages:
-                # Take first few sentences
-                sentences = text.split('.')[:3]
-                excerpt = '.'.join(sentences).strip()
-                if excerpt:
-                    answer_parts.append(f"{excerpt}. (p. {page})")
+                # Extract key points (look for bullet-style content)
+                lines = text.split('\n')
+                key_points = []
+                
+            for line in lines:
+                line = line.strip()
+                if len(line) > 20 and not line.isupper():  # Skip very short lines and headers
+                    # Check if it's a complete sentence or key point
+                    if line.endswith('.') or line.endswith(':') or line.endswith('!') or len(line) > 50:
+                        # Remove handbook prefix if present in the line
+                        if 'Handbook 2023' in line:
+                            # Find the year and take everything after it
+                            match = re.search(r'Handbook 2023\s*(.+)', line)
+                            if match:
+                                cleaned_line = match.group(1).strip()
+                                # Remove leading asterisk or bullet if present
+                                cleaned_line = re.sub(r'^[*•]\s*', '', cleaned_line)
+                                if cleaned_line:
+                                    key_points.append(cleaned_line)
+                            else:
+                                key_points.append(line)
+                        else:
+                            key_points.append(line)                # If we found key points, format them nicely
+                if key_points:
+                    # Group related content
+                    for point in key_points[:4]:  # Limit to 4 points per chunk
+                        if point:
+                            answer_content.append(f"• {point}")
+                    
+                    # Add reference for this page
+                    references.append(f"Page {page}")
                     seen_pages.add(page)
         
-        if answer_parts:
-            return "\n\n".join(answer_parts)
+        # Build final answer with clear sections
+        if answer_content:
+            answer = "\n".join(answer_content)
+            ref_section = "\n\n" + "─" * 50 + "\n📚 **References:** " + ", ".join(references)
+            return answer + ref_section
         else:
             return "I found relevant information but couldn't extract a clear answer. Please refer to the sources below."
     
