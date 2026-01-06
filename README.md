@@ -108,33 +108,8 @@ Assignment-3/
 - `chunks_metadata.pkl` - Chunk metadata
 - `config.json` - Configuration
 
----
 
-## 📤 Submission Checklist
-
-### Required Files ✅
-- [x] `ingest.py` - Ingestion script
-- [x] `ask.py` - CLI interface
-- [x] `app.py` - Streamlit UI
-- [x] `prompt_log.txt` - Prompt templates
-- [x] `requirements.txt` - Dependencies
-- [x] `README.md` - Documentation
-
-### Requirements Met ✅
-- [x] Single PDF corpus
-- [x] all-MiniLM-L6-v2 embeddings
-- [x] FAISS local storage
-- [x] Web/CLI interface
-- [x] Page citations in answers
-- [x] 250-400 word chunks
-- [x] 20-40% overlap
-- [x] Top-k=5 retrieval
-- [x] Threshold=0.25
-- [x] 6 validation questions
-
----
-
-## � Implementation Details
+## Implementation Details
 
 ### Ingestion Pipeline (ingest.py)
 1. **Load PDF:** Extract text per page (PyPDF2)
@@ -158,19 +133,7 @@ Assignment-3/
 
 ---
 
-## � Troubleshooting
-
-| Issue | Solution |
-|-------|----------|
-| "PDF file not found" | Place `FYP_Handbook_2023.pdf` in project directory |
-| "Import could not be resolved" | Run `pip install -r requirements.txt` |
-| "Required files not found" | Run `python ingest.py` first |
-| Slow first run | Normal - model downloads once (~80MB) |
-| No/poor answers | Question may be out of scope, try rephrasing |
-
----
-
-## � Technical Specs
+##  Technical Specs
 
 - **Python:** 3.8+
 - **RAM:** 2 GB minimum
@@ -194,8 +157,6 @@ Assignment-3/
 - Multi-turn conversation
 - Semantic chunking
 
----
-
-**Course:** FAST-NUCES Generative AI  
-**Team Size:** 2-3 members  
-**Date:** November 12, 2025
+### Contributors
+- Muhammad Umar Farooq github@: yuri8822
+- Ibrahim Ahmad github@: ibrahim8781
