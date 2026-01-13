@@ -1,13 +1,37 @@
 # Python
 __pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Environment variables (IMPORTANT - contains API keys!)
+.env
+
+# Virtual environment
+venv/
+env/
+ENV/
 
 # IDE
 .vscode/
+.idea/
+*.swp
+*.swo
 
-# Generated files
+# Generated RAG files
 faiss_index.bin
 chunks_metadata.pkl
 config.json
 
 # Streamlit
 .streamlit/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Optional: Uncomment if you don't want to commit the PDF
+# FYP-Handbook-2023.pdf

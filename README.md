@@ -4,7 +4,7 @@ A Retrieval-Augmented Generation (RAG) pipeline that answers students' questions
 
 **Assignment:** Generative AI - Assignment #3  
 **Submission Date:** November 22, 2025  
-**Built with:** Sentence-BERT • FAISS • Streamlit • PyPDF2
+**Built with:** Sentence-BERT • FAISS • Streamlit • Groq LLM • PyPDF2
 
 ---
 
@@ -16,6 +16,7 @@ This RAG system provides accurate, grounded answers about the FYP handbook with 
 - 📄 Single PDF corpus (BS FYP Handbook 2023)
 - 🧠 Semantic embeddings (all-MiniLM-L6-v2)
 - 🔍 Fast vector search (FAISS)
+- 🤖 Natural answers (Groq LLM - Llama 3.1)
 - 💻 Web UI (Streamlit) + CLI
 - 📌 Page-referenced answers (p. X)
 
@@ -28,19 +29,27 @@ This RAG system provides accurate, grounded answers about the FYP handbook with 
 pip install -r requirements.txt
 ```
 
-### 2. Add Handbook PDF
-Place your handbook in the project directory as:
-```
-FYP_Handbook_2023.pdf
+### 2. Configure API Key
+Get your free Groq API key from [console.groq.com](https://console.groq.com/keys)
+
+Create a `.env` file:
+```bash
+GROQ_API_KEY=your_api_key_here
 ```
 
-### 3. Create Index
+### 3. Add Handbook PDF
+Place your handbook in the project directory as:
+```
+FYP-Handbook-2023.pdf
+```
+
+### 4. Create Index
 ```bash
 python ingest.py
 ```
 This creates the FAISS index (~1-2 minutes, one-time only).
 
-### 4. Launch App
+### 5. Launch App
 ```bash
 # Web Interface (Recommended)
 streamlit run app.py
@@ -51,6 +60,8 @@ python ask.py
 # Or run validation tests
 python test_validation.py
 ```
+
+📝 **See [SETUP_GROQ.md](SETUP_GROQ.md) for detailed setup instructions**
 
 ---
 
@@ -94,9 +105,12 @@ Assignment-3/
 ├── ingest.py              # PDF → FAISS index
 ├── ask.py                 # CLI interface
 ├── app.py                 # Streamlit UI
+├── llm_utils.py           # Groq LLM integration (NEW)
 ├── test_validation.py     # Validation tests
 ├── requirements.txt       # Dependencies
 ├── prompt_log.txt         # Prompt templates
+├── .env.example           # Environment template (NEW)
+├── SETUP_GROQ.md          # Setup guide (NEW)
 ├── README.md              # This file
 ├── ARCHITECTURE.md        # System design
 ├── quickstart.py          # Setup helper
@@ -107,6 +121,7 @@ Assignment-3/
 - `faiss_index.bin` - Vector index
 - `chunks_metadata.pkl` - Chunk metadata
 - `config.json` - Configuration
+- `.env` - Your API keys (DO NOT COMMIT)
 
 ---
 

@@ -19,21 +19,9 @@ CONFIG_PATH = "config.json"
 TOP_K = 5
 SIMILARITY_THRESHOLD = 0.25
 
-# Prompt template
-SYSTEM_PROMPT = """You are a handbook assistant. Answer ONLY from the context provided.
-Cite page numbers like "(p. X)" after each relevant point.
-If you're unsure or the information isn't in the context, say "I don't have that information in the handbook."
-Be concise but thorough."""
-
-PROMPT_TEMPLATE = """You are a handbook assistant. Answer ONLY from the context.
-Cite page numbers like "(p. X)". If unsure, say you don't know.
-
-Question: {user_question}
-
-Context:
-{top_chunks_text}
-
-Answer:"""
+# Groq Configuration
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+GROQ_MODEL = "llama-3.1-8b-instant"
 
 
 def clean_ocr_errors(text: str) -> str:
@@ -78,6 +66,16 @@ class RAGQueryEngine:
         # Load embedding model
         print(f"Loading embedding model: {self.config['embedding_model']}")
         self.model = SentenceTransformer(self.config['embedding_model'])
+        
+        # Initialize Groq LLM
+        print("Initializing Groq LLM...")
+        if not GROQ_API_KEY:
+            raise ValueError(
+                "Groq API key not found. Please set GROQ_API_KEY in your .env file or environment."
+            )
+        
+        self.llm = GroqLLM(api_key=GROQ_API_KEY, model=GROQ_MODEL)
+        print(f"LLM initialized with model: {GROQ_MODEL}")
         
         print(f"RAG system loaded with {len(self.chunks)} chunks")
     
@@ -189,61 +187,6 @@ class RAGQueryEngine:
             'prompt': prompt  # Include for reference
         }
     
-    def _extract_answer_from_chunks(self, query: str, chunks: List[Dict]) -> str:
-        """
-        Extract answer from chunks with page citations.
-        This is a simple implementation - in production, use an LLM.
-        """
-        # Organize content by topic/section
-        answer_content = []
-        references = []
-        seen_pages = set()
-        
-        for chunk in chunks[:3]:  # Use top 3 chunks
-            page = chunk['page_number']
-            text = clean_ocr_errors(chunk['text'].strip())
-            
-            if page not in seen_pages:
-                # Extract key points (look for bullet-style content)
-                lines = text.split('\n')
-                key_points = []
-                
-            for line in lines:
-                line = line.strip()
-                if len(line) > 20 and not line.isupper():  # Skip very short lines and headers
-                    # Check if it's a complete sentence or key point
-                    if line.endswith('.') or line.endswith(':') or line.endswith('!') or len(line) > 50:
-                        # Remove handbook prefix if present in the line
-                        if 'Handbook 2023' in line:
-                            # Find the year and take everything after it
-                            match = re.search(r'Handbook 2023\s*(.+)', line)
-                            if match:
-                                cleaned_line = match.group(1).strip()
-                                # Remove leading asterisk or bullet if present
-                                cleaned_line = re.sub(r'^[*•]\s*', '', cleaned_line)
-                                if cleaned_line:
-                                    key_points.append(cleaned_line)
-                            else:
-                                key_points.append(line)
-                        else:
-                            key_points.append(line)                # If we found key points, format them nicely
-                if key_points:
-                    # Group related content
-                    for point in key_points[:4]:  # Limit to 4 points per chunk
-                        if point:
-                            answer_content.append(f"• {point}")
-                    
-                    # Add reference for this page
-                    references.append(f"Page {page}")
-                    seen_pages.add(page)
-        
-        # Build final answer with clear sections
-        if answer_content:
-            answer = "\n".join(answer_content)
-            ref_section = "\n\n" + "─" * 50 + "\n📚 **References:** " + ", ".join(references)
-            return answer + ref_section
-        else:
-            return "I found relevant information but couldn't extract a clear answer. Please refer to the sources below."
     
     def ask(self, query: str, top_k: int = TOP_K) -> Dict:
         """
@@ -275,6 +218,13 @@ def display_result(result: Dict):
     print("=" * 80)
     print(result['answer'])
     
+    # Show token usage if available
+    if result.get('tokens_used'):
+        tokens = result['tokens_used']
+        print("\n" + "-" * 80)
+        print(f"📊 Token Usage: {tokens['total']} total ({tokens['prompt']} prompt + {tokens['completion']} completion)")
+        print("-" * 80)
+    
     print("\n" + "=" * 80)
     print("SOURCES (Page References):")
     print("=" * 80)
@@ -287,6 +237,8 @@ def display_result(result: Dict):
     print("\n" + "=" * 80)
     print(f"Confidence: {result['confidence'].upper()}")
     print(f"Top similarity score: {result['scores'][0]:.3f}" if result['scores'] else "N/A")
+    if result.get('model'):
+        print(f"LLM Model: {result['model']}")
     print("=" * 80)
 
 

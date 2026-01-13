@@ -12,6 +12,7 @@ from typing import List, Dict, Tuple
 import numpy as np
 import faiss
 from sentence_transformers import SentenceTransformer
+from llm_utils import GroqLLM, format_context_for_llm, validate_api_key
 
 # Configuration
 FAISS_INDEX_PATH = "faiss_index.bin"
@@ -20,16 +21,9 @@ CONFIG_PATH = "config.json"
 TOP_K = 5
 SIMILARITY_THRESHOLD = 0.25
 
-# Prompt template
-PROMPT_TEMPLATE = """You are a handbook assistant. Answer ONLY from the context.
-Cite page numbers like "(p. X)". If unsure, say you don't know.
-
-Question: {user_question}
-
-Context:
-{top_chunks_text}
-
-Answer:"""
+# Groq Configuration
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+GROQ_MODEL = "llama-3.1-8b-instant"  # Can be configured
 
 
 def clean_ocr_errors(text: str) -> str:
@@ -50,7 +44,7 @@ def load_rag_system():
     """Load RAG system components (cached for performance)"""
     # Check if required files exist
     if not all(os.path.exists(p) for p in [FAISS_INDEX_PATH, METADATA_PATH, CONFIG_PATH]):
-        return None, None, None, None
+        return None, None, None, None, None
     
     # Load configuration
     with open(CONFIG_PATH, 'r') as f:
@@ -66,7 +60,15 @@ def load_rag_system():
     # Load embedding model
     model = SentenceTransformer(config['embedding_model'])
     
-    return index, chunks, model, config
+    # Initialize Groq LLM
+    llm = None
+    if GROQ_API_KEY:
+        try:
+            llm = GroqLLM(api_key=GROQ_API_KEY, model=GROQ_MODEL)
+        except Exception as e:
+            st.warning(f"Failed to initialize Groq LLM: {e}")
+    
+    return index, chunks, model, config, llm
 
 
 def retrieve_chunks(query: str, model, index, chunks, top_k: int = TOP_K) -> Tuple[List[Dict], List[float]]:
@@ -105,6 +107,33 @@ def format_context(chunks: List[Dict]) -> str:
         )
     
     return "\n".join(context_parts)
+
+
+def generate_llm_answer(query: str, chunks: List[Dict], llm: GroqLLM) -> Dict:
+    """
+    Generate answer using Groq LLM with retrieved chunks.
+    Returns conversational, well-formatted answer with citations.
+    """
+    try:
+        # Format context for LLM
+        context = format_context_for_llm(chunks, max_chunks=5)
+        
+        # Generate answer using LLM
+        result = llm.generate_answer(
+            question=query,
+            context=context,
+            max_tokens=1500,
+            temperature=0.3  # Low temperature for factual accuracy
+        )
+        
+        return result
+        
+    except Exception as e:
+        return {
+            'success': False,
+            'answer': f"Error generating answer: {str(e)}. Please check your API key and internet connection.",
+            'error': str(e)
+        }
 
 
 def extract_answer_from_chunks(query: str, chunks: List[Dict]) -> str:
@@ -166,8 +195,8 @@ def extract_answer_from_chunks(query: str, chunks: List[Dict]) -> str:
         return "I found relevant information but couldn't extract a clear answer. Please refer to the detailed sources below."
 
 
-def generate_answer(query: str, chunks: List[Dict], scores: List[float]) -> Dict:
-    """Generate answer from retrieved chunks"""
+def generate_answer(query: str, chunks: List[Dict], scores: List[float], llm: GroqLLM) -> Dict:
+    """Generate answer from retrieved chunks using Groq LLM"""
     # Check if best match is above threshold
     if not scores or scores[0] < SIMILARITY_THRESHOLD:
         return {
@@ -175,20 +204,24 @@ def generate_answer(query: str, chunks: List[Dict], scores: List[float]) -> Dict
             'sources': [],
             'scores': scores,
             'confidence': 'low',
-            'prompt': ''
+            'tokens_used': None,
+            'llm_used': False
         }
     
-    # Format context
-    context = format_context(chunks)
+    # Generate answer using LLM
+    llm_result = generate_llm_answer(query, chunks, llm)
     
-    # Create prompt
-    prompt = PROMPT_TEMPLATE.format(
-        user_question=query,
-        top_chunks_text=context
-    )
-    
-    # Extract answer
-    answer = extract_answer_from_chunks(query, chunks)
+    if not llm_result.get('success', False):
+        # Fallback if LLM fails
+        return {
+            'answer': llm_result.get('answer', 'Error generating answer.'),
+            'sources': [],
+            'scores': scores,
+            'confidence': 'low',
+            'tokens_used': None,
+            'llm_used': False,
+            'error': llm_result.get('error', 'Unknown error')
+        }
     
     # Format sources
     sources = []
@@ -205,11 +238,13 @@ def generate_answer(query: str, chunks: List[Dict], scores: List[float]) -> Dict
             seen_pages.add(page)
     
     return {
-        'answer': answer,
+        'answer': llm_result['answer'],
         'sources': sources,
         'scores': scores,
         'confidence': 'high' if scores[0] > 0.5 else 'medium',
-        'prompt': prompt
+        'tokens_used': llm_result.get('tokens_used'),
+        'model': llm_result.get('model'),
+        'llm_used': True
     }
 
 
@@ -227,12 +262,24 @@ def main():
     st.divider()
     
     # Load RAG system
-    index, chunks, model, config = load_rag_system()
+    index, chunks, model, config, llm = load_rag_system()
     
     # Check if system is loaded
     if index is None:
         st.error("⚠️ RAG system not initialized!")
         st.info("Please run `python ingest.py` first to create the FAISS index.")
+        st.stop()
+    
+    # Check API key
+    if not GROQ_API_KEY:
+        st.error("⚠️ Groq API key not found!")
+        st.info("Please set GROQ_API_KEY in your .env file or environment variables.")
+        st.code('GROQ_API_KEY=your_api_key_here', language='bash')
+        st.stop()
+    
+    if llm is None:
+        st.error("⚠️ Failed to initialize Groq LLM!")
+        st.info("Please check your API key and internet connection.")
         st.stop()
     
     # Display system info in sidebar
@@ -242,8 +289,15 @@ def main():
         st.metric("Chunk Size", f"{config['chunk_size']} words")
         st.metric("Overlap", f"{config['overlap']} words")
         st.metric("Embedding Model", "all-MiniLM-L6-v2")
+        st.metric("LLM Model", GROQ_MODEL)
         st.metric("Top-K Retrieval", TOP_K)
         st.metric("Similarity Threshold", SIMILARITY_THRESHOLD)
+        
+        # API Status
+        if validate_api_key(GROQ_API_KEY):
+            st.success("✅ Groq API Connected")
+        else:
+            st.error("❌ Groq API Not Connected")
         
         st.divider()
         
@@ -278,8 +332,8 @@ def main():
             # Retrieve chunks
             retrieved_chunks, scores = retrieve_chunks(query, model, index, chunks, TOP_K)
             
-            # Generate answer
-            result = generate_answer(query, retrieved_chunks, scores)
+            # Generate answer using LLM
+            result = generate_answer(query, retrieved_chunks, scores, llm)
         
         # Display answer
         st.divider()
@@ -296,14 +350,18 @@ def main():
         # Answer text - use a container for better styling
         answer_container = st.container()
         with answer_container:
-            # Split answer and references if they exist
-            if "─" in result['answer']:
-                answer_part, ref_part = result['answer'].split("─" * 50, 1)
-                st.markdown(answer_part.strip())
-                st.markdown("---")
-                st.markdown(ref_part.strip())
-            else:
-                st.markdown(result['answer'])
+            st.markdown(result['answer'])
+        
+        # Show token usage if available
+        if result.get('tokens_used'):
+            tokens = result['tokens_used']
+            col_t1, col_t2, col_t3 = st.columns(3)
+            with col_t1:
+                st.caption(f"📊 Prompt: {tokens['prompt']} tokens")
+            with col_t2:
+                st.caption(f"📊 Response: {tokens['completion']} tokens")
+            with col_t3:
+                st.caption(f"📊 Total: {tokens['total']} tokens")
         
         # Sources section (collapsible)
         st.divider()
@@ -322,8 +380,12 @@ def main():
             st.markdown("**Similarity Scores:**")
             st.write(result['scores'])
             
-            st.markdown("**Generated Prompt:**")
-            st.code(result['prompt'], language='text')
+            if result.get('model'):
+                st.markdown(f"**LLM Model Used:** {result['model']}")
+            
+            if result.get('tokens_used'):
+                st.markdown("**Token Usage:**")
+                st.json(result['tokens_used'])
     
     elif ask_button and not query.strip():
         st.warning("Please enter a question!")
