@@ -35,3 +35,15 @@ Thumbs.db
 
 # Optional: Uncomment if you don't want to commit the PDF
 # FYP-Handbook-2023.pdf
+
+[phases.setup]
+nixPkgs = ["python39", "gcc"]
+
+[phases.install]
+cmds = ["pip install --upgrade pip", "pip install -r requirements.txt"]
+
+[phases.build]
+cmds = ["python ingest.py"]
+
+[start]
+cmd = "streamlit run app.py --server.port=$PORT --server.address=0.0.0.0 --server.headless=true"
