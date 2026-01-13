@@ -18,13 +18,8 @@ ENV/
 *.swp
 *.swo
 
-# Generated RAG files
-faiss_index.bin
-chunks_metadata.pkl
-config.json
-
-# Streamlit
-.streamlit/
+# Streamlit cache
+.streamlit/secrets.toml
 
 # OS
 .DS_Store
@@ -33,17 +28,8 @@ Thumbs.db
 # Logs
 *.log
 
-# Optional: Uncomment if you don't want to commit the PDF
-# FYP-Handbook-2023.pdf
-
-[phases.setup]
-nixPkgs = ["python39", "gcc"]
-
-[phases.install]
-cmds = ["pip install --upgrade pip", "pip install -r requirements.txt"]
-
-[phases.build]
-cmds = ["python ingest.py"]
-
-[start]
-cmd = "streamlit run app.py --server.port=$PORT --server.address=0.0.0.0 --server.headless=true"
+# IMPORTANT: We INCLUDE these files for Railway deployment
+# faiss_index.bin
+# chunks_metadata.pkl
+# config.json
+# FYP-Handbook-2023.pdfks
