@@ -3,6 +3,10 @@ pypdf2
 streamlit==1.52.2
 python-dotenv
 
+# PyTorch CPU-only (lightweight, no CUDA)
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.2.0+cpu
+
 # RAG & Embeddings (CPU-only, lighter versions)
 sentence-transformers==5.2.0
 faiss-cpu==1.13.2
