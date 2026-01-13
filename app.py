@@ -8,22 +8,22 @@ import os
 import pickle
 import json
 import re
+import time
 from typing import List, Dict, Tuple
 import numpy as np
 import faiss
 from sentence_transformers import SentenceTransformer
 from llm_utils import GroqLLM, format_context_for_llm, validate_api_key
+from config_env import config, print_config_info
 
-# Configuration
-FAISS_INDEX_PATH = "faiss_index.bin"
-METADATA_PATH = "chunks_metadata.pkl"
-CONFIG_PATH = "config.json"
-TOP_K = 5
-SIMILARITY_THRESHOLD = 0.25
-
-# Groq Configuration
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-GROQ_MODEL = "llama-3.1-8b-instant"  # Can be configured
+# Use environment-based configuration
+FAISS_INDEX_PATH = config.FAISS_INDEX_PATH
+METADATA_PATH = config.METADATA_PATH
+CONFIG_PATH = config.CONFIG_PATH
+TOP_K = config.TOP_K
+SIMILARITY_THRESHOLD = config.SIMILARITY_THRESHOLD
+GROQ_API_KEY = config.GROQ_API_KEY
+GROQ_MODEL = config.GROQ_MODEL
 
 
 def clean_ocr_errors(text: str) -> str:
@@ -42,6 +42,10 @@ def clean_ocr_errors(text: str) -> str:
 @st.cache_resource
 def load_rag_system():
     """Load RAG system components (cached for performance)"""
+    # Print config info (only in development)
+    if config.DEBUG:
+        print_config_info()
+    
     # Check if required files exist
     if not all(os.path.exists(p) for p in [FAISS_INDEX_PATH, METADATA_PATH, CONFIG_PATH]):
         return None, None, None, None, None
@@ -115,6 +119,9 @@ def generate_llm_answer(query: str, chunks: List[Dict], llm: GroqLLM) -> Dict:
     Returns conversational, well-formatted answer with citations.
     """
     try:
+        # Start timing (if enabled)
+        start_time = time.time() if config.SHOW_TIMING else None
+        
         # Format context for LLM
         context = format_context_for_llm(chunks, max_chunks=5)
         
@@ -122,9 +129,16 @@ def generate_llm_answer(query: str, chunks: List[Dict], llm: GroqLLM) -> Dict:
         result = llm.generate_answer(
             question=query,
             context=context,
-            max_tokens=1500,
-            temperature=0.3  # Low temperature for factual accuracy
+            max_tokens=config.LLM_MAX_TOKENS,
+            temperature=config.LLM_TEMPERATURE
         )
+        
+        # Add timing info (if enabled)
+        if config.SHOW_TIMING and start_time:
+            elapsed = time.time() - start_time
+            result['timing'] = f"{elapsed:.2f}s"
+            if config.DEBUG:
+                print(f"⏱️ LLM generation took {elapsed:.2f}s")
         
         return result
         
@@ -285,6 +299,11 @@ def main():
     # Display system info in sidebar
     with st.sidebar:
         st.header("System Information")
+        
+        # Show environment mode
+        env_mode = "🏭 PRODUCTION" if not config.DEBUG else "🔧 DEVELOPMENT"
+        st.info(env_mode)
+        
         st.metric("Total Chunks", config['num_chunks'])
         st.metric("Chunk Size", f"{config['chunk_size']} words")
         st.metric("Overlap", f"{config['overlap']} words")
@@ -292,6 +311,11 @@ def main():
         st.metric("LLM Model", GROQ_MODEL)
         st.metric("Top-K Retrieval", TOP_K)
         st.metric("Similarity Threshold", SIMILARITY_THRESHOLD)
+        
+        # Show debug info in development mode
+        if config.DEBUG:
+            st.metric("Max Tokens", config.LLM_MAX_TOKENS)
+            st.metric("Temperature", config.LLM_TEMPERATURE)
         
         # API Status
         if validate_api_key(GROQ_API_KEY):
