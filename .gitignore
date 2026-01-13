@@ -28,8 +28,13 @@ Thumbs.db
 # Logs
 *.log
 
-# IMPORTANT: We INCLUDE these files for Railway deployment
-# faiss_index.bin
-# chunks_metadata.pkl
-# config.json
-# FYP-Handbook-2023.pdfks
+# DEPLOYMENT NOTE: For Railway deployment, we INCLUDE generated files
+# to avoid running ingestion on the server (saves time and resources)
+# These files ARE committed:
+#   - faiss_index.bin (vector index)
+#   - chunks_metadata.pkl (chunk metadata)
+#   - config.json (configuration)
+#   - FYP-Handbook-2023.pdf (source PDF)
+
+# Do NOT commit deployment guide
+RAILWAY_DEPLOY.md
