@@ -54,9 +54,9 @@ def load_rag_system():
     if not all(os.path.exists(p) for p in [FAISS_INDEX_PATH, METADATA_PATH, CONFIG_PATH]):
         return None, None, None, None, None
     
-    # Load configuration
+    # Load RAG configuration from JSON
     with open(CONFIG_PATH, 'r') as f:
-        config = json.load(f)
+        rag_config = json.load(f)
     
     # Load FAISS index
     index = faiss.read_index(FAISS_INDEX_PATH)
@@ -66,7 +66,7 @@ def load_rag_system():
         chunks = pickle.load(f)
     
     # Load embedding model
-    model = SentenceTransformer(config['embedding_model'])
+    model = SentenceTransformer(rag_config['embedding_model'])
     
     # Initialize Groq LLM
     llm = None
@@ -76,7 +76,7 @@ def load_rag_system():
         except Exception as e:
             st.warning(f"Failed to initialize Groq LLM: {e}")
     
-    return index, chunks, model, config, llm
+    return index, chunks, model, rag_config, llm
 
 
 def retrieve_chunks(query: str, model, index, chunks, top_k: int = TOP_K) -> Tuple[List[Dict], List[float]]:
@@ -298,7 +298,7 @@ def main():
     st.divider()
     
     # Load RAG system
-    index, chunks, model, config, llm = load_rag_system()
+    index, chunks, model, rag_config, llm = load_rag_system()
     
     # Check if system is loaded
     if index is None:
@@ -343,9 +343,9 @@ def main():
                 help="Cached embeddings reduce API costs"
             )
         
-        st.metric("Total Chunks", config['num_chunks'])
-        st.metric("Chunk Size", f"{config['chunk_size']} words")
-        st.metric("Overlap", f"{config['overlap']} words")
+        st.metric("Total Chunks", rag_config['num_chunks'])
+        st.metric("Chunk Size", f"{rag_config['chunk_size']} words")
+        st.metric("Overlap", f"{rag_config['overlap']} words")
         st.metric("Embedding Model", "all-MiniLM-L6-v2")
         st.metric("LLM Model", GROQ_MODEL)
         st.metric("Top-K Retrieval", TOP_K)
