@@ -215,18 +215,21 @@ if __name__ == "__main__":
     # Test retry logic
     print("Testing retry with backoff...")
     
-    attempt_count = 0
-    
-    @retry_with_backoff(max_retries=3, initial_delay=0.5)
-    def flaky_function():
-        nonlocal attempt_count
-        attempt_count += 1
-        if attempt_count < 3:
-            raise ConnectionError(f"Attempt {attempt_count} failed")
-        return "Success!"
+    def test_retry():
+        attempt_count = 0
+        
+        @retry_with_backoff(max_retries=3, initial_delay=0.5)
+        def flaky_function():
+            nonlocal attempt_count
+            attempt_count += 1
+            if attempt_count < 3:
+                raise ConnectionError(f"Attempt {attempt_count} failed")
+            return "Success!"
+        
+        return flaky_function()
     
     try:
-        result = flaky_function()
+        result = test_retry()
         print(f"Result: {result}")
     except APIError as e:
         print(f"Failed: {e}")
