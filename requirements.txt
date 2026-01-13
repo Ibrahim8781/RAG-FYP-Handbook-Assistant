@@ -1,10 +1,14 @@
+# Core dependencies
 pypdf2
-sentence-transformers
-faiss-cpu
-streamlit
-langchain
-langchain-community
-numpy
-torch
-groq
+streamlit==1.52.2
 python-dotenv
+
+# RAG & Embeddings (CPU-only, lighter versions)
+sentence-transformers==5.2.0
+faiss-cpu==1.13.2
+
+# LLM
+groq
+
+# Utilities
+numpy
