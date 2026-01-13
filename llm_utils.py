@@ -4,9 +4,13 @@ Handles Groq API integration and answer generation
 """
 
 import os
+import time
 from typing import List, Dict, Optional
 from groq import Groq
 from dotenv import load_dotenv
+from logger import logger, log_llm_call, log_error
+from error_handling import retry_with_backoff, APIError, validate_input
+from rate_limiting import api_rate_limiter
 
 # Load environment variables
 load_dotenv()
@@ -73,6 +77,7 @@ class GroqLLM:
         self.client = Groq(api_key=self.api_key)
         self.model = model
     
+    @retry_with_backoff(max_retries=3, initial_delay=1.0, exceptions=(Exception,))
     def generate_answer(
         self,
         question: str,
@@ -81,7 +86,7 @@ class GroqLLM:
         temperature: float = 0.3
     ) -> Dict:
         """
-        Generate answer using Groq LLM.
+        Generate answer using Groq LLM with retry logic.
         
         Args:
             question: User's question
@@ -92,12 +97,22 @@ class GroqLLM:
         Returns:
             Dictionary with answer and metadata
         """
+        # Check rate limit
+        allowed, retry_after = api_rate_limiter.is_allowed("groq_api")
+        if not allowed:
+            logger.warning(f"Groq API rate limit exceeded. Retry after {retry_after:.1f}s")
+            raise APIError(f"Rate limit exceeded. Please wait {int(retry_after) + 1} seconds.")
+        
+        start_time = time.time()
+        
         try:
             # Format user prompt
             user_prompt = USER_PROMPT_TEMPLATE.format(
                 question=question,
                 context=context
             )
+            
+            logger.debug(f"Calling Groq API with model: {self.model}")
             
             # Call Groq API
             response = self.client.chat.completions.create(
@@ -112,11 +127,21 @@ class GroqLLM:
                 stream=False
             )
             
+            elapsed = time.time() - start_time
+            
             # Extract answer
             answer = response.choices[0].message.content.strip()
             
             # Get usage stats
             usage = response.usage
+            
+            # Log successful call
+            log_llm_call(
+                model=self.model,
+                tokens=usage.total_tokens,
+                latency=elapsed,
+                success=True
+            )
             
             return {
                 'success': True,
@@ -127,15 +152,46 @@ class GroqLLM:
                     'completion': usage.completion_tokens,
                     'total': usage.total_tokens
                 },
-                'finish_reason': response.choices[0].finish_reason
+                'finish_reason': response.choices[0].finish_reason,
+                'latency': elapsed
             }
             
         except Exception as e:
+            elapsed = time.time() - start_time
+            
+            # Log failed call
+            log_llm_call(
+                model=self.model,
+                tokens=0,
+                latency=elapsed,
+                success=False
+            )
+            log_error(e, {"function": "generate_answer", "model": self.model})
+            
+            # Return user-friendly error
+            error_message = self._format_error_message(e)
+            
             return {
                 'success': False,
-                'answer': f"Error generating answer: {str(e)}",
-                'error': str(e)
+                'answer': error_message,
+                'error': str(e),
+                'latency': elapsed
             }
+    
+    def _format_error_message(self, error: Exception) -> str:
+        """Format user-friendly error message"""
+        error_str = str(error).lower()
+        
+        if "rate" in error_str or "limit" in error_str:
+            return "⚠️ The AI service is temporarily busy. Please wait a moment and try again."
+        elif "key" in error_str or "auth" in error_str:
+            return "⚠️ API authentication error. Please contact support."
+        elif "timeout" in error_str:
+            return "⚠️ The request timed out. Please try again with a shorter question."
+        elif "model" in error_str:
+            return "⚠️ The AI model is currently unavailable. Please try again later."
+        else:
+            return f"⚠️ An error occurred while generating the answer. Please try again.\n\nError: {str(error)}"
     
     def generate_answer_stream(
         self,

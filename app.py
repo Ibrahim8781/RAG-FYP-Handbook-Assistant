@@ -15,6 +15,10 @@ import faiss
 from sentence_transformers import SentenceTransformer
 from llm_utils import GroqLLM, format_context_for_llm, validate_api_key
 from config_env import config, print_config_info
+from logger import logger, log_query, log_retrieval, log_error
+from error_handling import validate_input, ErrorContext
+from rate_limiting import check_rate_limit, query_rate_limiter, user_rate_limiter
+from caching import embedding_cache
 
 # Use environment-based configuration
 FAISS_INDEX_PATH = config.FAISS_INDEX_PATH
@@ -76,9 +80,21 @@ def load_rag_system():
 
 
 def retrieve_chunks(query: str, model, index, chunks, top_k: int = TOP_K) -> Tuple[List[Dict], List[float]]:
-    """Retrieve top-k most relevant chunks"""
-    # Embed query
-    query_embedding = model.encode([query])
+    """Retrieve top-k most relevant chunks with caching"""
+    start_time = time.time()
+    
+    # Check cache first
+    cached_embedding = embedding_cache.get(query)
+    
+    if cached_embedding is not None:
+        query_embedding = cached_embedding
+        logger.debug("Using cached embedding")
+    else:
+        # Embed query
+        query_embedding = model.encode([query])
+        # Cache the embedding
+        embedding_cache.set(query, query_embedding)
+        logger.debug("Generated and cached new embedding")
     
     # Normalize for cosine similarity
     faiss.normalize_L2(query_embedding)
@@ -94,6 +110,12 @@ def retrieve_chunks(query: str, model, index, chunks, top_k: int = TOP_K) -> Tup
         if idx < len(chunks):
             retrieved_chunks.append(chunks[idx])
             retrieved_scores.append(float(score))
+    
+    elapsed = time.time() - start_time
+    
+    # Log retrieval metrics
+    top_score = retrieved_scores[0] if retrieved_scores else 0.0
+    log_retrieval(len(retrieved_chunks), top_score, elapsed)
     
     return retrieved_chunks, retrieved_scores
 
@@ -304,6 +326,23 @@ def main():
         env_mode = "🏭 PRODUCTION" if not config.DEBUG else "🔧 DEVELOPMENT"
         st.info(env_mode)
         
+        # Rate limit status
+        rate_status = query_rate_limiter.get_status()
+        st.metric(
+            "Request Capacity", 
+            f"{rate_status['remaining']}/{rate_status['max_requests']}",
+            help="Available requests in current time window"
+        )
+        
+        # Cache statistics (in debug mode)
+        if config.DEBUG:
+            cache_stats = embedding_cache.get_stats()
+            st.metric(
+                "Cache Hit Rate",
+                f"{cache_stats['valid_entries']}/{cache_stats['total_entries']}",
+                help="Cached embeddings reduce API costs"
+            )
+        
         st.metric("Total Chunks", config['num_chunks'])
         st.metric("Chunk Size", f"{config['chunk_size']} words")
         st.metric("Overlap", f"{config['overlap']} words")
@@ -352,29 +391,57 @@ def main():
     
     # Process query
     if ask_button and query.strip():
-        with st.spinner("Searching handbook..."):
-            # Retrieve chunks
-            retrieved_chunks, scores = retrieve_chunks(query, model, index, chunks, TOP_K)
+        # Log the query
+        log_query(query)
+        
+        # Validate input
+        is_valid, error_msg = validate_input(query, min_length=3, max_length=500)
+        if not is_valid:
+            st.error(f"❌ {error_msg}")
+            logger.warning(f"Invalid query: {error_msg}")
+        else:
+            # Check rate limits
+            user_id = st.session_state.get('user_id', 'anonymous')
+            allowed, rate_limit_msg = check_rate_limit(user_id)
             
-            # Generate answer using LLM
-            result = generate_answer(query, retrieved_chunks, scores, llm)
-        
-        # Display answer
-        st.divider()
-        st.subheader("📝 Answer")
-        
-        # Confidence badge
-        confidence_color = {
-            'high': '🟢',
-            'medium': '🟡',
-            'low': '🔴'
-        }
-        st.markdown(f"{confidence_color[result['confidence']]} Confidence: **{result['confidence'].title()}**")
-        
-        # Answer text - use a container for better styling
-        answer_container = st.container()
-        with answer_container:
-            st.markdown(result['answer'])
+            if not allowed:
+                st.error(f"❌ {rate_limit_msg}")
+                logger.warning(f"Rate limit exceeded for user: {user_id}")
+            else:
+                with st.spinner("Searching handbook..."):
+                    try:
+                        # Retrieve chunks
+                        retrieved_chunks, scores = retrieve_chunks(query, model, index, chunks, TOP_K)
+                        
+                        # Generate answer using LLM
+                        result = generate_answer(query, retrieved_chunks, scores, llm)
+                        
+                        # Display answer
+                        st.divider()
+                        st.subheader("📝 Answer")
+                        
+                        # Confidence badge
+                        confidence_color = {
+                            'high': '🟢',
+                            'medium': '🟡',
+                            'low': '🔴'
+                        }
+                        st.markdown(f"{confidence_color[result['confidence']]} Confidence: **{result['confidence'].title()}**")
+                        
+                        # Answer text - use a container for better styling
+                        answer_container = st.container()
+                        with answer_container:
+                            st.markdown(result['answer'])
+                        
+                        # Show timing in debug mode
+                        if config.SHOW_TIMING and 'timing' in result:
+                            st.caption(f"⏱️ Response time: {result['timing']}")
+                        
+                    except Exception as e:
+                        log_error(e, {"query": query, "user_id": user_id})
+                        st.error(f"❌ An error occurred while processing your query. Please try again.")
+                        if config.DEBUG:
+                            st.exception(e)
         
         # Show token usage if available
         if result.get('tokens_used'):
