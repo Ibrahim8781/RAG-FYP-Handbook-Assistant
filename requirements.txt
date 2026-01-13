@@ -1,4 +1,5 @@
 # Core dependencies
+numpy>=1.24.0,<2.0.0
 pypdf2
 streamlit==1.52.2
 python-dotenv
@@ -13,6 +14,3 @@ faiss-cpu==1.13.2
 
 # LLM
 groq
-
-# Utilities
-numpy
