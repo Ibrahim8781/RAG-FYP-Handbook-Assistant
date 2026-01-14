@@ -30,8 +30,9 @@ GROQ_API_KEY = config.GROQ_API_KEY
 GROQ_MODEL = config.GROQ_MODEL
 
 
+@st.cache_data
 def clean_ocr_errors(text: str) -> str:
-    """Fix common OCR errors in text output."""
+    """Fix common OCR errors in text output (cached)"""
     text = re.sub(r'Y\s+ear', 'Year', text, flags=re.IGNORECASE)
     text = re.sub(r'Pr\s+oject', 'Project', text, flags=re.IGNORECASE)
     text = re.sub(r'F\s+inal', 'Final', text, flags=re.IGNORECASE)
@@ -120,8 +121,9 @@ def retrieve_chunks(query: str, model, index, chunks, top_k: int = TOP_K) -> Tup
     return retrieved_chunks, retrieved_scores
 
 
+@st.cache_data(ttl=3600)  # Cache for 1 hour
 def format_context(chunks: List[Dict]) -> str:
-    """Format retrieved chunks into context string"""
+    """Format retrieved chunks into context string (cached)"""
     context_parts = []
     for i, chunk in enumerate(chunks, 1):
         page = chunk['page_number']
@@ -285,11 +287,13 @@ def generate_answer(query: str, chunks: List[Dict], scores: List[float], llm: Gr
 
 
 def main():
-    """Main Streamlit app"""
+    """Main Streamlit app - Optimized for Railway"""
     st.set_page_config(
         page_title="FYP Handbook Assistant",
         page_icon="📚",
-        layout="wide"
+        layout="wide",
+        initial_sidebar_state="collapsed",  # Reduce unnecessary renders
+        menu_items=None  # Remove menu to reduce requests
     )
     
     # Header
