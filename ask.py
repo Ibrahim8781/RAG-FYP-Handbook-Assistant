@@ -11,6 +11,11 @@ from typing import List, Dict, Tuple
 import numpy as np
 import faiss
 from sentence_transformers import SentenceTransformer
+from dotenv import load_dotenv
+from llm_utils import GroqLLM, format_context_for_llm
+
+# Load environment variables
+load_dotenv()
 
 # Configuration
 FAISS_INDEX_PATH = "faiss_index.bin"
@@ -21,7 +26,7 @@ SIMILARITY_THRESHOLD = 0.25
 
 # Groq Configuration
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-GROQ_MODEL = "llama-3.1-8b-instant"
+GROQ_MODEL = "groq/compound-mini"
 
 
 def clean_ocr_errors(text: str) -> str:
@@ -152,18 +157,12 @@ class RAGQueryEngine:
                 'confidence': 'low'
             }
         
-        # Format context
-        context = self.format_context(chunks)
+        # Format context for LLM
+        context = format_context_for_llm(chunks, max_chunks=5)
         
-        # Create prompt (this would be sent to an LLM in production)
-        prompt = PROMPT_TEMPLATE.format(
-            user_question=query,
-            top_chunks_text=context
-        )
-        
-        # For this implementation, we'll provide a rule-based answer
-        # that extracts relevant information with page citations
-        answer = self._extract_answer_from_chunks(query, chunks)
+        # Generate answer using Groq LLM
+        llm_res = self.llm.generate_answer(question=query, context=context)
+        answer = llm_res.get('answer', 'Failed to generate answer.')
         
         # Format sources
         sources = []
@@ -184,7 +183,8 @@ class RAGQueryEngine:
             'sources': sources,
             'scores': scores,
             'confidence': 'high' if scores[0] > 0.5 else 'medium',
-            'prompt': prompt  # Include for reference
+            'tokens_used': llm_res.get('tokens_used'),
+            'model': llm_res.get('model', GROQ_MODEL)
         }
     
     

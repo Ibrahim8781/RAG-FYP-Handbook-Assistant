@@ -5,6 +5,10 @@ Separate settings for development and production
 
 import os
 from typing import Dict, Any
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 class Config:
     """Base configuration"""
@@ -16,7 +20,7 @@ class Config:
     SIMILARITY_THRESHOLD = 0.25
     
     # LLM settings
-    GROQ_MODEL = "llama-3.1-8b-instant"
+    GROQ_MODEL = "groq/compound-mini"
     LLM_TEMPERATURE = 0.3
     LLM_MAX_TOKENS = 1024
     

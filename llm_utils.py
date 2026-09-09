@@ -17,8 +17,8 @@ load_dotenv()
 
 # Groq Configuration
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-DEFAULT_MODEL = "llama-3.1-8b-instant"  # Fast and reliable model
-# Alternative models: "llama-3.1-70b-versatile", "llama3-8b-8192", "llama3-70b-8192"
+DEFAULT_MODEL = "groq/compound-mini"  # Fast and reliable model
+# Alternative models: "groq/compound", "qwen/qwen3.6-27b"
 
 # Improved prompt template for better LLM responses
 SYSTEM_PROMPT = """You are an expert assistant for the FAST-NUCES Final Year Project (FYP) Handbook. Your role is to help students understand FYP guidelines, requirements, and procedures.
@@ -286,7 +286,7 @@ def validate_api_key(api_key: Optional[str] = None) -> bool:
         client = Groq(api_key=test_key)
         # Try a minimal request to verify the key works
         response = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model="groq/compound-mini",
             messages=[{"role": "user", "content": "Hi"}],
             max_tokens=5
         )
