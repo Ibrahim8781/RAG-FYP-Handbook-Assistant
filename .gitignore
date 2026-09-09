@@ -38,3 +38,10 @@ Thumbs.db
 
 # Do NOT commit deployment guide
 RAILWAY_DEPLOY.md
+
+# Embedding cache (generated at runtime)
+.cache/
+
+# Dev/test artifacts
+test_results.json
+interview-code-analysis.md
